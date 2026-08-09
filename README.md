@@ -31,6 +31,8 @@ Then open:
 | Grafana dashboard | <http://localhost:3000> — `admin` / `admin` |
 | Control panel | <http://localhost:8000> |
 
+![The dashboard, mid dry run](docs/dashboard.png)
+
 The dashboard's top row is the control panel: buttons to run the pipeline or
 any single stage, the next scheduled run, and the history of every run with
 the stage it failed at. Below it are the DORA four keys, the backlog, session
