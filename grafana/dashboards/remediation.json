@@ -1,0 +1,870 @@
+{
+  "uid": "security-remediation",
+  "title": "Security remediation pipeline",
+  "tags": [
+    "security",
+    "devin",
+    "dora"
+  ],
+  "timezone": "utc",
+  "editable": true,
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Pipeline control",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "text",
+      "title": "Run the pipeline",
+      "description": "Triggers the same stage scripts the scheduled run uses. Served by the control service.",
+      "gridPos": {
+        "h": 11,
+        "w": 11,
+        "x": 0,
+        "y": 1
+      },
+      "options": {
+        "mode": "html",
+        "content": "<iframe src=\"http://localhost:8000/\" style=\"width:100%;height:100%;border:0;\" title=\"Pipeline control\"></iframe>"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Run history",
+      "description": "Every pipeline run this control plane has executed, newest first.",
+      "gridPos": {
+        "h": 11,
+        "w": 13,
+        "x": 11,
+        "y": 1
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "remediation-metrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ok"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "text": "passed",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "false": {
+                        "text": "failed",
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "http://control:8000/api/runs",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "started_at",
+              "text": "Started",
+              "type": "string"
+            },
+            {
+              "selector": "trigger",
+              "text": "Trigger",
+              "type": "string"
+            },
+            {
+              "selector": "stages",
+              "text": "Stages",
+              "type": "string"
+            },
+            {
+              "selector": "ok",
+              "text": "ok",
+              "type": "string"
+            },
+            {
+              "selector": "failed_stage",
+              "text": "Failed at",
+              "type": "string"
+            },
+            {
+              "selector": "finished_at",
+              "text": "Finished",
+              "type": "string"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "DORA four keys (a merged remediation PR is the delivery)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Deployment frequency",
+      "description": "Merged remediation pull requests per active week.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 13
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "dora.deployment_frequency.per_week",
+              "text": "PRs / week",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Lead time for change",
+      "description": "Median hours from the Devin session starting to its pull request being merged.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 13
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 24
+              },
+              {
+                "color": "orange",
+                "value": 168
+              },
+              {
+                "color": "red",
+                "value": 720
+              }
+            ]
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "dora.lead_time_for_change_hours.median",
+              "text": "Median hours",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Change failure rate",
+      "description": "Share of terminal remediation attempts that were blocked or whose pull request was rejected.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 13
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.15
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "dora.change_failure_rate.rate",
+              "text": "Failure rate",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Time to restore service",
+      "description": "Median hours from a finding being filed to its issue being closed.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 13
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 24
+              },
+              {
+                "color": "orange",
+                "value": 168
+              },
+              {
+                "color": "red",
+                "value": 720
+              }
+            ]
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "dora.time_to_restore_hours.median",
+              "text": "Median hours",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Backlog and outcomes",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Backlog by state",
+      "description": "Where every open finding currently sits in the pipeline.",
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "backlog.awaiting_triage",
+              "text": "Awaiting triage",
+              "type": "number"
+            },
+            {
+              "selector": "backlog.queued",
+              "text": "Queued",
+              "type": "number"
+            },
+            {
+              "selector": "backlog.in_flight",
+              "text": "In flight",
+              "type": "number"
+            },
+            {
+              "selector": "backlog.pr_open",
+              "text": "PR open",
+              "type": "number"
+            },
+            {
+              "selector": "backlog.blocked",
+              "text": "Blocked",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Session outcomes",
+      "description": "Sessions run, and how many reached an answer without needing a human.",
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "outcomes.sessions",
+              "text": "Sessions",
+              "type": "number"
+            },
+            {
+              "selector": "outcomes.resolved_without_human",
+              "text": "Resolved autonomously",
+              "type": "number"
+            },
+            {
+              "selector": "outcomes.needed_human",
+              "text": "Needed a human",
+              "type": "number"
+            },
+            {
+              "selector": "dora.deployment_frequency.merged_pull_requests",
+              "text": "PRs merged",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "barchart",
+      "title": "Throughput by week",
+      "description": "Findings filed, sessions dispatched, pull requests opened and merged, issues closed.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "Week",
+        "orientation": "auto",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "throughput_by_week",
+          "columns": [
+            {
+              "selector": "week",
+              "text": "Week",
+              "type": "string"
+            },
+            {
+              "selector": "filed",
+              "text": "Filed",
+              "type": "number"
+            },
+            {
+              "selector": "dispatched",
+              "text": "Dispatched",
+              "type": "number"
+            },
+            {
+              "selector": "pull_requests",
+              "text": "PRs opened",
+              "type": "number"
+            },
+            {
+              "selector": "merged",
+              "text": "PRs merged",
+              "type": "number"
+            },
+            {
+              "selector": "closed",
+              "text": "Closed",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Funnel",
+      "description": "How many findings reached each stage. Drop-off between rows is work that stalled.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "funnel",
+          "columns": [
+            {
+              "selector": "label",
+              "text": "Stage",
+              "type": "string"
+            },
+            {
+              "selector": "count",
+              "text": "Reached",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "Stage": 0,
+              "Reached": 1
+            },
+            "excludeByName": {},
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Findings",
+      "description": "Every tracked finding with its session, verdict and pull request.",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pull request"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Issue",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "remediation-metrics"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://control:8000/metrics.json",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "issues",
+          "columns": [
+            {
+              "selector": "number",
+              "text": "Issue",
+              "type": "number"
+            },
+            {
+              "selector": "title",
+              "text": "Title",
+              "type": "string"
+            },
+            {
+              "selector": "state",
+              "text": "State",
+              "type": "string"
+            },
+            {
+              "selector": "session_id",
+              "text": "Session",
+              "type": "string"
+            },
+            {
+              "selector": "verdict",
+              "text": "Verdict",
+              "type": "string"
+            },
+            {
+              "selector": "pull_request",
+              "text": "Pull request",
+              "type": "string"
+            },
+            {
+              "selector": "pull_request_state",
+              "text": "PR state",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "Issue": 0,
+              "Title": 1,
+              "State": 2,
+              "Session": 3,
+              "Verdict": 4,
+              "Pull request": 5,
+              "PR state": 6
+            },
+            "excludeByName": {},
+            "renameByName": {}
+          }
+        }
+      ]
+    }
+  ]
+}

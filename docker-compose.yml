@@ -1,0 +1,77 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+#   cp .env.example .env   # fill in the two tokens
+#   docker compose up --build
+#   open http://localhost:3000   (admin / admin)
+#
+# Set DRY_RUN=true in .env to walk the whole pipeline without writing to
+# GitHub or spending a Devin session.
+
+name: superset-ng-remediation
+
+services:
+  # The control plane: runs the pipeline on demand or on a cron, and serves
+  # both the control panel and the JSON that Grafana reads.
+  control:
+    build:
+      context: .
+      dockerfile: control/Dockerfile
+    ports:
+      - "${CONTROL_PORT:-8000}:8000"
+    environment:
+      TARGET_REPOSITORY: ${TARGET_REPOSITORY:-neerajgulia92/superset-ng}
+      TARGET_REF: ${TARGET_REF:-master}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?set GITHUB_TOKEN in .env}
+      DEVIN_API_KEY: ${DEVIN_API_KEY:-}
+      PIPELINE_CRON: ${PIPELINE_CRON:-0 * * * *}
+      QUEUE_UNTRIAGED: ${QUEUE_UNTRIAGED:-1}
+      MAX_SESSIONS: ${MAX_SESSIONS:-1}
+      AUTO_MERGE: ${AUTO_MERGE:-true}
+      CLOSE_RESOLVED: ${CLOSE_RESOLVED:-false}
+      DRY_RUN: ${DRY_RUN:-false}
+      BASE_BRANCH: ${BASE_BRANCH:-master}
+    volumes:
+      - metrics:/data
+      - target:/target
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  grafana:
+    build: ./grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: dark
+      # The control panel is embedded as an iframe in a text panel.
+      GF_PANELS_DISABLE_SANITIZE_HTML: "true"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    depends_on:
+      control:
+        condition: service_healthy
+
+volumes:
+  metrics:
+  target:

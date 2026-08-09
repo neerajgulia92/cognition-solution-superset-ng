@@ -1,0 +1,137 @@
+<!--
+ Licensed to the Apache Software Foundation (ASF) under one
+ or more contributor license agreements.  See the NOTICE file
+ distributed with this work for additional information
+ regarding copyright ownership.  The ASF licenses this file
+ to you under the Apache License, Version 2.0 (the
+ "License"); you may not use this file except in compliance
+ with the License.  You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing,
+ software distributed under the License is distributed on an
+ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ KIND, either express or implied.  See the License for the
+ specific language governing permissions and limitations
+ under the License.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Remediation pipeline control</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0; padding: 16px; background: #111217; color: #d8d9da;
+      }
+      h1 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+      button {
+        font: inherit; padding: 7px 14px; border-radius: 4px; cursor: pointer;
+        border: 1px solid #2f3037; background: #22242b; color: #d8d9da;
+      }
+      button:hover:not(:disabled) { background: #2b2e37; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      button.primary { background: #3d71d9; border-color: #3d71d9; color: #fff; }
+      dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0 0 14px; }
+      dt { color: #8e8f94; }
+      dd { margin: 0; }
+      .stages { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+      .stage {
+        padding: 3px 9px; border-radius: 10px; font-size: 12px;
+        border: 1px solid #2f3037; background: #191a20;
+      }
+      .ok { border-color: #2a6b3f; color: #7ddb9c; }
+      .fail { border-color: #7a2c2c; color: #f0938e; }
+      .busy { border-color: #7a6520; color: #ecd07a; }
+      pre {
+        background: #16171c; border: 1px solid #24252c; border-radius: 4px;
+        padding: 10px; max-height: 320px; overflow: auto; font-size: 12px;
+        white-space: pre-wrap; margin: 0;
+      }
+      a { color: #6e9fff; }
+    </style>
+  </head>
+  <body>
+    <h1>Remediation pipeline</h1>
+
+    <dl>
+      <dt>Target</dt><dd id="repo">-</dd>
+      <dt>Schedule</dt><dd id="schedule">-</dd>
+      <dt>Next run</dt><dd id="next">-</dd>
+      <dt>Auto-merge</dt><dd id="merge">-</dd>
+      <dt>State</dt><dd id="state">-</dd>
+    </dl>
+
+    <div class="row">
+      <button class="primary" data-stages="all">Run full pipeline</button>
+      <button data-stages="scan,sync">Scan &amp; file issues</button>
+      <button data-stages="dispatch">Dispatch sessions</button>
+      <button data-stages="poll">Poll sessions</button>
+      <button data-stages="merge">Merge green PRs</button>
+      <button data-stages="metrics">Refresh metrics</button>
+    </div>
+
+    <div class="stages" id="stages"></div>
+    <pre id="log">No run yet.</pre>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const buttons = [...document.querySelectorAll("button[data-stages]")];
+
+      buttons.forEach((button) =>
+        button.addEventListener("click", async () => {
+          buttons.forEach((b) => (b.disabled = true));
+          $("log").textContent = "Starting…";
+          try {
+            await fetch("/api/run", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ stages: button.dataset.stages.split(",") }),
+            });
+          } catch (error) {
+            $("log").textContent = String(error);
+          }
+          refresh();
+        })
+      );
+
+      function renderRun(run, running) {
+        if (!run) return;
+        const done = new Map(run.results.map((r) => [r.stage, r]));
+        $("stages").innerHTML = run.stages
+          .map((stage) => {
+            const result = done.get(stage);
+            const cls = !result ? (running ? "busy" : "") : result.ok ? "ok" : "fail";
+            return `<span class="stage ${cls}">${stage}</span>`;
+          })
+          .join("");
+        $("log").textContent = run.results
+          .map((r) => `$ ${r.command}\n${r.output.trim() || "(no output)"}`)
+          .join("\n\n");
+      }
+
+      async function refresh() {
+        const status = await (await fetch("/api/status")).json();
+        $("repo").innerHTML =
+          `<a href="https://github.com/${status.repository}" target="_blank">${status.repository}</a>`;
+        $("schedule").textContent = status.schedule + " (UTC)";
+        $("next").textContent = status.next_run || "not scheduled";
+        $("merge").textContent = status.auto_merge ? "on" : "off";
+        $("state").textContent = status.running
+          ? "running"
+          : status.dry_run
+            ? "idle (dry run)"
+            : "idle";
+        buttons.forEach((b) => (b.disabled = status.running));
+        renderRun(status.current || status.last_run, status.running);
+      }
+
+      refresh();
+      setInterval(refresh, 3000);
+    </script>
+  </body>
+</html>
