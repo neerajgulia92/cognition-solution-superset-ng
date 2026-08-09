@@ -27,6 +27,7 @@ the Superset test suite.
 # reason, hence stdlib json rather than superset.utils.json.
 import json  # noqa: TID251
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,20 @@ import metrics  # noqa: E402
 import poll  # noqa: E402
 import scan  # noqa: E402
 import sync_issues  # noqa: E402
+import verify  # noqa: E402
+
+
+class _AnyTime:
+    """Matches any timestamp, so assertions can compare whole payloads."""
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, str)
+
+    def __repr__(self) -> str:
+        return "<any timestamp>"
+
+
+ANY_TIME = _AnyTime()
 
 
 def test_markers_round_trip() -> None:
@@ -463,6 +478,7 @@ def _tracked_issue(
         "created_at": created_at,
         "closed_at": closed_at,
         "labels": [{"name": name} for name in labels or [common.LABEL_SECURITY]],
+        "fix_verified": None,
     }
 
 
@@ -724,7 +740,8 @@ def test_merge_waits_for_checks_then_merges() -> None:
     outcome, _ = merge.consider(github, issue, dry_run=False)
     assert outcome == "merged"
     assert github.merged == [99]
-    assert (7, common.LABEL_PR_OPEN) in github.removed_labels
+    # The label survives the merge: verification, not merging, ends the work.
+    assert github.removed_labels == []
 
 
 def test_merge_leaves_conflicted_and_foreign_pull_requests_alone() -> None:
@@ -770,3 +787,171 @@ def test_merge_honours_legacy_commit_statuses() -> None:
     outcome, detail = merge.consider(github, issue, dry_run=False)
     assert outcome == "checks failing"
     assert "ci/legacy (failure)" in detail
+
+
+def _merged_issue(number: int = 7) -> dict[str, Any]:
+    return {
+        "number": number,
+        "title": "[Security] md5",
+        "state": "open",
+        "created_at": "2026-08-01T00:00:00Z",
+        "closed_at": None,
+        "body": common.marker(common.FINGERPRINT_PREFIX, "bandit:B324:superset/x.py"),
+        "labels": [{"name": common.LABEL_PR_OPEN}, {"name": common.LABEL_AUTOMATED}],
+    }
+
+
+def _merged_github(merged_at: str | None = "2026-08-02T04:00:00Z") -> FakeGitHub:
+    issue = _merged_issue()
+    github = FakeGitHub([issue])
+    _record_pull(github, 7, "https://github.com/acme/superset-ng/pull/99")
+    github.pull_requests[99] = {"state": "closed", "merged_at": merged_at}
+    return github
+
+
+SCANNED_AFTER = datetime(2026, 8, 2, 6, 0, tzinfo=timezone.utc)
+SCANNED_BEFORE = datetime(2026, 8, 2, 1, 0, tzinfo=timezone.utc)
+
+
+def test_verify_closes_the_issue_when_the_finding_stops_reproducing() -> None:
+    github = _merged_github()
+    outcome, _ = verify.verify(
+        github,
+        github.issues[0],
+        reproducing=set(),
+        scanned_at=SCANNED_AFTER,
+        dry_run=False,
+    )
+    assert outcome == "verified"
+    assert github.updates == [(7, {"state": "closed"})]
+    assert (7, common.LABEL_PR_OPEN) in github.removed_labels
+    body = github.comments_by_issue[7][-1]["body"]
+    assert "Fix verified" in body
+    assert json.loads(
+        common.find_marker(body, common.VERIFIED_MARKER_PREFIX) or "{}"
+    ) == {
+        "pull_request": 99,
+        "verified": True,
+        "remaining": [],
+        "checked_at": ANY_TIME,
+    }
+
+
+def test_verify_reopens_when_the_merged_fix_did_not_work() -> None:
+    github = _merged_github()
+    outcome, _ = verify.verify(
+        github,
+        github.issues[0],
+        reproducing={"bandit:B324:superset/x.py"},
+        scanned_at=SCANNED_AFTER,
+        dry_run=False,
+    )
+    assert outcome == "not verified"
+    # The issue stays open; only a scan of the merged result can close it.
+    assert github.updates == []
+    assert (7, [common.LABEL_BLOCKED]) in github.added_labels
+    assert "still reproduces" in github.comments_by_issue[7][-1]["body"]
+
+
+def test_verify_defers_when_the_scan_predates_the_merge() -> None:
+    github = _merged_github()
+    outcome, detail = verify.verify(
+        github,
+        github.issues[0],
+        reproducing=set(),
+        scanned_at=SCANNED_BEFORE,
+        dry_run=False,
+    )
+    assert outcome == "deferred"
+    assert "merged after the scan" in detail
+    assert github.updates == []
+
+
+def test_verify_rules_on_a_pull_request_only_once() -> None:
+    github = _merged_github()
+    verify.verify(
+        github,
+        github.issues[0],
+        reproducing=set(),
+        scanned_at=SCANNED_AFTER,
+        dry_run=False,
+    )
+    outcome, _ = verify.verify(
+        github,
+        github.issues[0],
+        reproducing=set(),
+        scanned_at=SCANNED_AFTER,
+        dry_run=False,
+    )
+    assert outcome == "skipped"
+    assert github.updates == [(7, {"state": "closed"})]
+
+
+def test_verify_ignores_an_unmerged_pull_request() -> None:
+    github = _merged_github(merged_at=None)
+    outcome, detail = verify.verify(
+        github,
+        github.issues[0],
+        reproducing=set(),
+        scanned_at=SCANNED_AFTER,
+        dry_run=False,
+    )
+    assert (outcome, detail) == ("skipped", "no merged pull request")
+
+
+def test_verify_requires_every_fingerprint_to_be_gone() -> None:
+    github = _merged_github()
+    github.issues[0]["body"] += "\n" + common.marker(
+        common.FINGERPRINT_PREFIX, "osv:flask:2.3.3"
+    )
+    outcome, detail = verify.verify(
+        github,
+        github.issues[0],
+        reproducing={"osv:flask:2.3.3"},
+        scanned_at=SCANNED_AFTER,
+        dry_run=False,
+    )
+    assert outcome == "not verified"
+    assert "osv:flask:2.3.3" in detail
+
+
+def test_verify_writes_nothing_in_a_dry_run() -> None:
+    github = _merged_github()
+    outcome, _ = verify.verify(
+        github,
+        github.issues[0],
+        reproducing=set(),
+        scanned_at=SCANNED_AFTER,
+        dry_run=True,
+    )
+    assert outcome == "would verify"
+    assert github.updates == []
+    assert len(github.comments_by_issue[7]) == 1
+
+
+def test_metrics_reports_verification_separately_from_merging() -> None:
+    github = _merged_github()
+    github.comment(
+        7,
+        common.marker(
+            common.VERIFIED_MARKER_PREFIX,
+            json.dumps({"pull_request": 99, "verified": True, "remaining": []}),
+        ),
+    )
+    github.issues[0]["state"] = "closed"
+    github.issues[0]["closed_at"] = "2026-08-02T06:00:00Z"
+    record = metrics.collect_issue(github, github.issues[0])
+    assert record["fix_verified"] is True
+
+    report = metrics.build_report([record], datetime(2026, 8, 3, tzinfo=timezone.utc))
+    assert report["outcomes"]["merged"] == 1
+    assert report["outcomes"]["fix_verified"] == 1
+    assert report["outcomes"]["awaiting_verification"] == 0
+
+
+def test_metrics_counts_a_merge_awaiting_its_re_scan() -> None:
+    github = _merged_github()
+    record = metrics.collect_issue(github, github.issues[0])
+    report = metrics.build_report([record], datetime(2026, 8, 3, tzinfo=timezone.utc))
+    assert record["fix_verified"] is None
+    assert report["outcomes"]["awaiting_verification"] == 1

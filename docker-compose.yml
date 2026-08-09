@@ -41,7 +41,7 @@ services:
       PIPELINE_CRON: ${PIPELINE_CRON:-0 * * * *}
       QUEUE_UNTRIAGED: ${QUEUE_UNTRIAGED:-1}
       MAX_SESSIONS: ${MAX_SESSIONS:-1}
-      AUTO_MERGE: ${AUTO_MERGE:-true}
+      AUTO_MERGE: ${AUTO_MERGE:-false}
       CLOSE_RESOLVED: ${CLOSE_RESOLVED:-false}
       DRY_RUN: ${DRY_RUN:-false}
       BASE_BRANCH: ${BASE_BRANCH:-master}

@@ -51,6 +51,7 @@ from common import (
     LABEL_WORKING,
     METRICS_MARKER_PREFIX,
     SESSION_MARKER_PREFIX,
+    VERIFIED_MARKER_PREFIX,
     write_summary,
 )
 
@@ -158,6 +159,7 @@ def collect_issue(github: GitHub, issue: dict[str, Any]) -> dict[str, Any]:
     session_started_at: datetime | None = None
     status: dict[str, Any] = {}
     status_at: datetime | None = None
+    verification: dict[str, Any] = {}
     for comment in github.comments(number):
         body = comment["body"]
         found = find_marker(body, SESSION_MARKER_PREFIX)
@@ -168,6 +170,9 @@ def collect_issue(github: GitHub, issue: dict[str, Any]) -> dict[str, Any]:
         if payload:
             status = json.loads(payload)
             status_at = parse_time(status.get("checked_at"))
+        checked = find_marker(body, VERIFIED_MARKER_PREFIX)
+        if checked:
+            verification = json.loads(checked)
 
     created_at = parse_time(issue.get("created_at"))
     closed_at = parse_time(issue.get("closed_at"))
@@ -214,6 +219,10 @@ def collect_issue(github: GitHub, issue: dict[str, Any]) -> dict[str, Any]:
         ),
         "hours_session_to_merge": hours_between(session_started_at, merged_at),
         "hours_filed_to_closed": hours_between(created_at, closed_at),
+        # None until a scan has run against the merged result: a merge is a
+        # claim that the finding is gone, not evidence of it.
+        "fix_verified": verification.get("verified"),
+        "verified_at": verification.get("checked_at"),
     }
 
 
@@ -262,9 +271,11 @@ def dora(
         "change_failure_rate": {
             "terminal_attempts": attempts,
             "failed": len(rejected) + len(blocked),
-            "rate": round((len(rejected) + len(blocked)) / attempts, 2)
-            if attempts
-            else None,
+            "rate": (
+                round((len(rejected) + len(blocked)) / attempts, 2)
+                if attempts
+                else None
+            ),
         },
         "time_to_restore_hours": {
             **restore,
@@ -369,6 +380,19 @@ def build_report(records: list[dict[str, Any]], now: datetime) -> dict[str, Any]
                     if r["verdict"] == "blocked" or LABEL_BLOCKED in r["labels"]
                 ]
             ),
+            # A merge is a claim; a scan of the merged result is the evidence.
+            "merged": len([r for r in records if r["pull_request_state"] == "merged"]),
+            "fix_verified": len([r for r in records if r["fix_verified"] is True]),
+            "fix_failed_verification": len(
+                [r for r in records if r["fix_verified"] is False]
+            ),
+            "awaiting_verification": len(
+                [
+                    r
+                    for r in records
+                    if r["pull_request_state"] == "merged" and r["fix_verified"] is None
+                ]
+            ),
         },
         "latency_hours": {
             "queue_to_session": summarise(
@@ -471,6 +495,10 @@ def render(report: dict[str, Any]) -> str:
         f"| Sessions run | {outcomes['sessions']} |",
         f"| Resolved without a human | {outcomes['resolved_without_human']} |",
         f"| Needed a human | {outcomes['needed_human']} |",
+        f"| Fixes merged | {outcomes['merged']} |",
+        f"| Fixes verified by a re-scan | {outcomes['fix_verified']} |",
+        f"| Merged but still reproducing | {outcomes['fix_failed_verification']} |",
+        f"| Awaiting verification | {outcomes['awaiting_verification']} |",
         "",
         "## Backlog",
         "",
@@ -548,22 +576,30 @@ def render(report: dict[str, Any]) -> str:
         for r in report["issues"]
         if LABEL_BLOCKED in r["labels"] and r["state"] == "open"
     ]
+    attention += [
+        f"- #{r['number']}: {r['pull_request']} merged but the finding still "
+        "reproduces"
+        for r in report["issues"]
+        if r["fix_verified"] is False
+    ]
     lines += attention or ["- Nothing stalled or blocked."]
 
     lines += [
         "",
         "## Per-issue detail",
         "",
-        "| Issue | State | Verdict | Session | Pull request | PR state |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Issue | State | Verdict | Session | Pull request | PR state | Verified |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
+    verified_cell = {True: "yes", False: "**no**", None: "-"}
     for record in sorted(report["issues"], key=lambda r: r["number"]):
         session = f"`{record['session_id']}`" if record["session_id"] else "-"
         lines.append(
             f"| #{record['number']} | {record['state']} "
             f"| `{record['verdict'] or '-'}` | {session} "
             f"| {record['pull_request'] or '-'} "
-            f"| {record['pull_request_state'] or '-'} |"
+            f"| {record['pull_request_state'] or '-'} "
+            f"| {verified_cell[record['fix_verified']]} |"
         )
     return "\n".join(lines)
 

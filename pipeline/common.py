@@ -37,6 +37,7 @@ DEVIN_API = os.environ.get("DEVIN_API_BASE", "https://api.devin.ai/v1")
 FINGERPRINT_PREFIX = "sec-fp"
 SESSION_MARKER_PREFIX = "devin-session"
 METRICS_MARKER_PREFIX = "devin-metrics"
+VERIFIED_MARKER_PREFIX = "sec-verified"
 
 LABEL_SECURITY = "security"
 LABEL_AUTOMATED = "automated-finding"

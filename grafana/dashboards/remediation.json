@@ -537,7 +537,7 @@
     {
       "type": "stat",
       "title": "Session outcomes",
-      "description": "Sessions run, and how many reached an answer without needing a human.",
+      "description": "Sessions run, how many reached an answer without a human, and how many merged fixes a re-scan proved.",
       "gridPos": {
         "h": 5,
         "w": 12,
@@ -603,6 +603,21 @@
             {
               "selector": "dora.deployment_frequency.merged_pull_requests",
               "text": "PRs merged",
+              "type": "number"
+            },
+            {
+              "selector": "outcomes.fix_verified",
+              "text": "Fixes verified",
+              "type": "number"
+            },
+            {
+              "selector": "outcomes.awaiting_verification",
+              "text": "Awaiting re-scan",
+              "type": "number"
+            },
+            {
+              "selector": "outcomes.fix_failed_verification",
+              "text": "Still reproducing",
               "type": "number"
             }
           ]
@@ -842,6 +857,11 @@
             {
               "selector": "pull_request_state",
               "text": "PR state",
+              "type": "string"
+            },
+            {
+              "selector": "fix_verified",
+              "text": "Fix verified",
               "type": "string"
             }
           ]

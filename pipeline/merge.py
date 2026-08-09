@@ -135,7 +135,8 @@ def consider(github: GitHub, issue: dict[str, Any], dry_run: bool) -> tuple[str,
         f"Remediation pull request #{number} merged automatically: every check "
         "passed and the branch was mergeable.",
     )
-    github.remove_label(issue["number"], LABEL_PR_OPEN)
+    # The label stays until `verify` has re-scanned the merged result: it is
+    # what tells the next run this finding is waiting on that check.
     return "merged", f"#{number}"
 
 

@@ -60,10 +60,13 @@ BANDIT_TARGET = os.environ.get("BANDIT_TARGET", "superset")
 
 REPOSITORY = os.environ.get("TARGET_REPOSITORY", "neerajgulia92/superset-ng")
 TARGET_CHECKOUT = Path(os.environ.get("TARGET_CHECKOUT", "/target"))
+TARGET_REF = os.environ.get("TARGET_REF", "master")
 SCHEDULE = os.environ.get("PIPELINE_CRON", "0 * * * *")
 QUEUE_UNTRIAGED = os.environ.get("QUEUE_UNTRIAGED", "1")
 MAX_SESSIONS = os.environ.get("MAX_SESSIONS", "1")
-AUTO_MERGE = os.environ.get("AUTO_MERGE", "true").lower() == "true"
+# Off by default: the fix pull request is meant to be reviewed and merged by
+# an engineer, and the pipeline picks the work back up once it lands.
+AUTO_MERGE = os.environ.get("AUTO_MERGE", "false").lower() == "true"
 # Off by default. This stack scans Python dependencies and code, but not npm,
 # so a finding filed by the CI scanner from `npm audit` would look resolved
 # here and be closed for the wrong reason.
@@ -91,6 +94,7 @@ STAGES: dict[str, list[str]] = {
     "dispatch": ["dispatch.py", "--max-sessions", MAX_SESSIONS],
     "poll": ["poll.py"],
     "merge": ["merge.py"],
+    "verify": ["verify.py", "--findings", str(FINDINGS)],
     "metrics": [
         "metrics.py",
         "--json-out",
@@ -137,6 +141,44 @@ def scan_arguments() -> list[str]:
     return extra
 
 
+async def refresh_target() -> None:
+    """Pull the target's default branch before scanning it.
+
+    Verification depends on this: a merged fix only shows up as gone once the
+    checkout has advanced to the commit the merge produced.
+    """
+    if not (TARGET_CHECKOUT / ".git").exists():
+        return
+    process = await asyncio.create_subprocess_exec(
+        "git",
+        "-C",
+        str(TARGET_CHECKOUT),
+        "fetch",
+        "--depth",
+        "1",
+        "origin",
+        TARGET_REF,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await process.communicate()
+    if process.returncode != 0:
+        # An unreachable remote must not fail the run; the existing checkout
+        # is stale but still scannable, and verification simply defers.
+        return
+    checkout = await asyncio.create_subprocess_exec(
+        "git",
+        "-C",
+        str(TARGET_CHECKOUT),
+        "checkout",
+        "-q",
+        "FETCH_HEAD",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await checkout.communicate()
+
+
 async def run_bandit() -> None:
     """Refresh the bandit report the scanner reads its code findings from.
 
@@ -165,9 +207,10 @@ async def run_stage(name: str) -> dict[str, Any]:
     """Run one stage as a subprocess and capture what it said."""
     command = list(STAGES[name])
     if name == "scan":
+        await refresh_target()
         await run_bandit()
         command += scan_arguments()
-    if DRY_RUN and name in ("sync", "dispatch", "merge"):
+    if DRY_RUN and name in ("sync", "dispatch", "merge", "verify"):
         command.append("--dry-run")
 
     started = now()
